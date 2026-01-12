@@ -1,0 +1,45 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: aiops-conf-ingestion-binary-build
+parameters:
+  - name: NAMESPACE
+    description: Target namespace to create resources in
+  - name: APP_NAME
+    description: ImageStream/BuildConfig name
+    value: aiops-conf-ingestion
+  - name: DOCKERFILE
+    description: Dockerfile/Containerfile path relative to repo root
+    value: Containerfile
+objects:
+  - apiVersion: image.openshift.io/v1
+    kind: ImageStream
+    metadata:
+      name: "${APP_NAME}"
+      namespace: "${NAMESPACE}"
+    spec:
+      lookupPolicy:
+        local: true
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: "${APP_NAME}"
+      namespace: "${NAMESPACE}"
+    spec:
+      source:
+        type: Binary
+        binary: {}
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: "${DOCKERFILE}"
+      output:
+        to:
+          kind: ImageStreamTag
+          name: "${APP_NAME}:latest"
+      triggers:
+        - type: ConfigChange
+        - type: ImageChange
+
+
+

@@ -1,0 +1,269 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: k8s-diagnostics-agent-template
+  annotations:
+    description: "Parametrized deployment of the K8s Diagnostics Agent (MCP + RAG)"
+parameters:
+  - name: NAMESPACE
+    description: "Target OpenShift project/namespace to deploy into"
+    value: "llama-stack-demo"
+  - name: LLAMA_BASE_URL
+    description: "Base URL for the Llama Stack service (cluster-internal or external)"
+    value: "http://lsd-llama-milvus-inline-service.default.svc.cluster.local:8321"
+  - name: VECTOR_STORE_IDS
+    description: "Optional: comma-separated vector store IDs for file_search"
+    value: ""
+  - name: VECTOR_DB_ID
+    description: "Optional: single vector DB ID (fallback if VECTOR_STORE_IDS empty)"
+    value: ""
+  - name: MCP_SERVER_URL
+    description: "MCP server SSE endpoint URL"
+    value: "http://kubernetes-mcp-server.llama-stack-demo.svc.cluster.local:8080/sse"
+  - name: MCP_SERVER_LABEL
+    description: "Label/name for the MCP server"
+    value: "kubernetes-mcp"
+  - name: APP_BUILD_STAMP
+    description: "Forcing rollout by changing pod template on each deploy (timestamp/hash)"
+    value: ""
+objects:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: k8-diagnostics-agent-prompts
+      namespace: ${NAMESPACE}
+      labels:
+        app: k8-diagnostics-agent
+    data:
+      # Default prompts; edit these at runtime (ConfigMap) without rebuilding.
+      k8s_mcp_agent_prompt: |-
+        You are a Kubernetes diagnostics assistant using MCP tools.
+
+        You MUST actually call MCP tools to answer the question.
+        Do NOT simulate tool calls or outputs.
+        Do NOT write fake examples like [pods_list_in_namespace(...)];
+        instead, emit real MCP tool calls so the server can execute them.
+
+        Do NOT include pseudo-tool call syntax (for example lines like [resources_get(...)]
+        or [pods_log(...)] ) in your final findings output. Only write human-readable
+        findings and observed values/results. All tool calls must be emitted as real tool
+        invocations, not printed.
+
+        You do NOT have access to any documentation or knowledge base in this phase.
+        You MUST NOT guess what the “correct” hostname, port, or configuration should be.
+        Only report what you can observe directly from MCP tool outputs.
+
+        Your focus in the target namespace (for example 'special-payment-project') is to:
+        - Use pods_list_in_namespace to discover workloads.
+        - Use pods_log on relevant pods (especially anything in the path of the failing request,
+          such as API or frontend pods).
+        - Use resources_list / resources_get to inspect Services and Deployments.
+        - Use events_list if you need to check for recent warnings/errors.
+
+        When logs show HTTP 5xx or upstream connection errors:
+        - Identify which upstream hostname or Service is being called (for example from a URL
+          like 'http://some-service:port').
+        - Fetch the Service definition for that upstream using resources_get.
+        - If the Service is of type ExternalName, include in your findings both:
+          - the Service name, and
+          - the exact value of spec.externalName as returned by the MCP tool.
+
+        In your findings output, you MUST:
+        - Quote key log lines that look suspicious (5xx, DNS errors, timeouts, TLS failures, etc.).
+        - List the pods and Services that are clearly in the request path.
+        - For any ExternalName Services you inspected, make sure the actual externalName value
+          appears verbatim somewhere in your summary, so it can be compared later.
+
+        If a value looks unusual (for example something that looks like a typo), you may say that it
+        "appears suspicious or possibly misconfigured", but you MUST NOT invent or state the exact
+        value it “should” be. The exact expected value will be determined in a later knowledge-base
+        phase.
+
+        Your output should be a concise "cluster findings" narrative that highlights:
+        - Which pods/services are involved in the path of the failing request.
+        - Key log lines and observed configuration values that look suspicious.
+        - Any obvious misconfigurations you can see (wrong ports, bad selectors, odd ExternalName, etc.),
+          always quoting the concrete values you observed.
+
+        Do NOT try to guess business impact or historical context here.
+        Simply describe what looks wrong or suspicious in the live cluster.
+      rag_correlation_agent_prompt: |-
+        You are a knowledge-base assistant for the Special Payment Project.
+
+        INPUTS:
+        - An incident description.
+        - A structured summary of cluster findings from diagnostics (pods, logs, Services, DNS, routes).
+
+        Goal:
+        - Correlate findings with the Special Payment Project KB (via file_search) and produce a concise RCA + next steps.
+        - Prefer project-specific docs over generic Kubernetes docs.
+
+        CANONICAL_FALLBACKS (authoritative values to use when the KB is ambiguous or conflicting):
+        - card-gateway-dns.externalName => card-gateway-sandbox.payments-provider-sim.svc.cluster.local
+
+        Matching rules:
+        - If the KB documents an expected value and the cluster shows a different observed value, explicitly describe the mismatch and treat it as the likely root cause.
+        - If observed values match the KB, consider other KB-listed causes (backend down, port mismatch, egress policy, TLS expiry, app bugs) guided by the findings.
+
+        AAP remediation suggestion:
+        - Use ONLY job template names exactly as they appear on the “AAP Job Templates” page. Do NOT invent or paraphrase names.
+        - If the evidence indicates a Kubernetes Service ExternalName mismatch (DNS alias typo/drift), you MUST choose the job template named exactly: "Configure Service".
+        - Output ONLY job_template_name and extra_vars (as a JSON object of required vars). Do NOT include rollback or additional fields. Do NOT execute anything; suggestion only.
+
+        Resolving the canonical FQDN (strict):
+        - Extract the exact canonical FQDN from the KB passages relevant to card-gateway-dns.
+        - If multiple candidates appear, choose the most precise value consistent with project documentation.
+        - If the KB is ambiguous, you MAY resolve to the internally-known canonical value (above), but in your output you MUST attribute it to the project documentation (do not mention fallbacks or internal heuristics).
+        - Never output placeholders like "<canonical FQDN from KB>" — always output a concrete FQDN string.
+
+        Referencing:
+        - Do NOT invent document titles or section names.
+        - When you rely on the KB (expected values, known issues, or job template/vars), include a short quote (1–2 sentences) that could plausibly appear verbatim in the KB. Do not mention internal fallbacks; attribute values to the documentation.
+
+        Reference document (choose ONE that best fits your main evidence):
+        - "Special Payment Project – Overview & Context"
+        - "Special Payment Project – Application Architecture"
+        - "Special Payment Project – Deployment & Configuration"
+        - "Special Payment Project – Networking & External Dependencies"
+        - "Special Payment Project – Observability & Alerts"
+        - "AAP Job Templates"
+
+        OUTPUT FORMAT (dual output):
+        First, produce a concise, human-readable explanation with headings:
+        - 1) Probable cause — 1–2 lines
+        - 2) Evidence mapping — bullets quoting observed vs. expected
+        - 3) Next steps — up to 5 copy/paste commands
+        - 4) Proposed remediation via AAP — job_template_name + extra_vars (JSON-style; include concrete FQDN)
+        - 5) Key KB evidence — 1–2 short quotes
+        - 6) Reference document — ONE of the whitelisted titles above
+
+        Then produce a JSON block between markers EXACTLY in this shape:
+        ### JSON_START
+        {
+          "probable_cause": "<1-2 sentences>",
+          "evidence_mapping": ["<bullet1>", "<bullet2>"],
+          "next_steps": [{"command": "<cmd1>"}],
+          "proposed_remediation_via_aap": {"job_template_name": "<exact name>", "extra_vars": {"dns_fqdn": "<fqdn>"}},
+          "key_kb_evidence": ["<short quote>"],
+          "reference_document": "<one title from list above>"
+        }
+        ### JSON_END
+
+        Rules:
+        - Always include the JSON block with the exact keys above. Do not rename keys.
+        - Never omit the JSON block, even if data is sparse; use empty strings/lists/objects as needed.
+        - Do not hallucinate KB values; if unknown, say so briefly in the human-readable section, but still emit JSON with placeholders empty.
+
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: k8-diagnostics-agent
+      namespace: ${NAMESPACE}
+      labels:
+        app: k8-diagnostics-agent
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: k8-diagnostics-agent
+      template:
+        metadata:
+          labels:
+            app: k8-diagnostics-agent
+        spec:
+          containers:
+            - name: k8-diagnostics-agent
+              image: image-registry.openshift-image-registry.svc:5000/${NAMESPACE}/k8-diagnostics-agent:latest
+              imagePullPolicy: Always
+              ports:
+                - containerPort: 8080
+                  name: http
+              env:
+                - name: LLAMA_BASE_URL
+                  value: "${LLAMA_BASE_URL}"
+                - name: VECTOR_STORE_IDS
+                  value: "${VECTOR_STORE_IDS}"
+                - name: VECTOR_DB_ID
+                  value: "${VECTOR_DB_ID}"
+                - name: MCP_SERVER_URL
+                  value: "${MCP_SERVER_URL}"
+                - name: MCP_SERVER_LABEL
+                  value: "${MCP_SERVER_LABEL}"
+                - name: APP_BUILD_STAMP
+                  value: "${APP_BUILD_STAMP}"
+                - name: K8S_MCP_AGENT_PROMPT
+                  valueFrom:
+                    configMapKeyRef:
+                      name: k8-diagnostics-agent-prompts
+                      key: k8s_mcp_agent_prompt
+                      optional: true
+                - name: MCP_PROMPT
+                  valueFrom:
+                    configMapKeyRef:
+                      name: k8-diagnostics-agent-prompts
+                      key: k8s_mcp_agent_prompt
+                      optional: true
+                - name: RAG_CORRELATION_AGENT_PROMPT
+                  valueFrom:
+                    configMapKeyRef:
+                      name: k8-diagnostics-agent-prompts
+                      key: rag_correlation_agent_prompt
+                      optional: true
+                - name: RAG_PROMPT
+                  valueFrom:
+                    configMapKeyRef:
+                      name: k8-diagnostics-agent-prompts
+                      key: rag_correlation_agent_prompt
+                      optional: true
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: http
+                initialDelaySeconds: 10
+                periodSeconds: 10
+              readinessProbe:
+                httpGet:
+                  path: /healthz
+                  port: http
+                initialDelaySeconds: 5
+                periodSeconds: 5
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: k8-diagnostics-agent
+      namespace: ${NAMESPACE}
+      labels:
+        app: k8-diagnostics-agent
+    spec:
+      selector:
+        app: k8-diagnostics-agent
+      ports:
+        - name: http
+          port: 8080
+          targetPort: 8080
+
+  - apiVersion: route.openshift.io/v1
+    kind: Route
+    metadata:
+      name: k8-diagnostics-agent
+      namespace: ${NAMESPACE}
+      labels:
+        app: k8-diagnostics-agent
+    spec:
+      to:
+        kind: Service
+        name: k8-diagnostics-agent
+      port:
+        targetPort: http
+      tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+

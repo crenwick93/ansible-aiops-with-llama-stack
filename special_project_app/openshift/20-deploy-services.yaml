@@ -1,0 +1,142 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-frontend
+  namespace: special-payment-project
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: checkout-frontend } }
+  template:
+    metadata: { labels: { app: checkout-frontend } }
+    spec:
+      containers:
+        - name: web
+          image: image-registry.openshift-image-registry.svc:5000/special-payment-project/frontend:latest
+          imagePullPolicy: Always
+          ports: [{ containerPort: 8080 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout-frontend
+  namespace: special-payment-project
+spec:
+  selector: { app: checkout-frontend }
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-api
+  namespace: special-payment-project
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: checkout-api } }
+  template:
+    metadata: { labels: { app: checkout-api } }
+    spec:
+      containers:
+        - name: api
+          image: image-registry.openshift-image-registry.svc:5000/special-payment-project/api:latest
+          imagePullPolicy: Always
+          env:
+            - name: PAYMENTS_BASE
+              value: "http://card-gateway-dns:5678"
+            - name: PAYMENTS_PATH
+              value: ""
+            - name: HTTP_TIMEOUT
+              value: "5"
+          ports: [{ containerPort: 8000 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout-api
+  namespace: special-payment-project
+  labels: { app: checkout-api }
+spec:
+  selector: { app: checkout-api }
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: card-gateway-sandbox
+  namespace: payments-provider-sim
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: card-gateway-sandbox } }
+  template:
+    metadata: { labels: { app: card-gateway-sandbox } }
+    spec:
+      containers:
+        - name: simulator
+          image: hashicorp/http-echo:1.0.0
+          args: ["-text=ok"]
+          ports: [{ containerPort: 5678 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: card-gateway-sandbox
+  namespace: payments-provider-sim
+spec:
+  selector: { app: card-gateway-sandbox }
+  ports:
+    - name: http
+      port: 5678
+      targetPort: 5678
+
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snow-bridge
+  namespace: special-monitoring
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: snow-bridge } }
+  template:
+    metadata: { labels: { app: snow-bridge } }
+    spec:
+      containers:
+        - name: bridge
+          image: image-registry.openshift-image-registry.svc:5000/special-monitoring/snow-bridge:latest
+          imagePullPolicy: Always
+          env:
+            - name: SERVICENOW_INSTANCE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: snow-settings
+                  key: instance_url
+            - name: SERVICENOW_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: snow-credentials
+                  key: username
+            - name: SERVICENOW_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: snow-credentials
+                  key: password
+          ports: [{ containerPort: 8080 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: snow-bridge
+  namespace: special-monitoring
+spec:
+  selector: { app: snow-bridge }
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

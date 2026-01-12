@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Special Payment Project</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <link rel="stylesheet" href="/style.css"/>
+  <link rel="icon" href="data:,">
+  <meta name="color-scheme" content="dark light">
+</head>
+<body>
+  <header>
+    <h1>Special Payment Project</h1>
+  </header>
+  <main>
+    <section class="card">
+      <h2>Send Funds</h2>
+      <div class="row">
+        <button id="btn-pay">Pay £1.00</button>
+        <span id="status" class="status"></span>
+      </div>
+      <pre id="result" class="result"></pre>
+    </section>
+  </main>
+  <footer>
+    <small>Flow: Frontend → <code>/api/checkout</code> → API → <code>payments-external</code> (ExternalName)</small>
+  </footer>
+  <script src="/app.js"></script>
+  <!-- minimal inline script fallback -->
+  <script>if(!window.fetch){document.getElementById('status').textContent='Your browser needs fetch()';}</script>
+</body>
+</html>
+
+

@@ -1,0 +1,24 @@
+---
+- name: Test launching a Controller Job Template
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Launch 'Configure Service' in Default org (no extra vars)
+      ansible.controller.job_launch:
+        job_template: "Configure Service"
+        organization: "Default"
+      register: launch
+
+    - name: Wait for job to finish
+      ansible.controller.job_wait:
+        job_id: "{{ launch.id }}"
+        timeout: 1800
+        interval: 2
+      register: job_result
+
+    - name: Fail if job did not succeed
+      ansible.builtin.fail:
+        msg: "Job {{ launch.id }} finished with status {{ job_result.status }}"
+      when: job_result.status != 'successful'
+
+

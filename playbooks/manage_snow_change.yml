@@ -1,0 +1,115 @@
+---
+- name: Manage ServiceNow change requests
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    # Defaults can be overridden by caller (rulebook or workflow)
+    change_type: emergency
+    change_short_description: "EDA Demo change"
+    change_description: "Change created by EDA demo"
+    change_impact: high
+    change_urgency: high
+    change_assignment_group: "Event Driven Ansible"
+    change_assigned_to: ""
+    change_start: ""
+    change_end: ""
+    change_justification: ""
+
+    # Correlation/associations
+    alert_fingerprint: ""
+    incident_sys_id: ""
+    incident_number: ""
+
+    # Identifier inputs for update paths
+    change_number: ""
+    change_sys_id: ""
+
+    # Implementation execution defaults (can be overridden by caller)
+    # implementation_job_template_name: "se_linux_remediation"
+    implementation_job_template_name: "{{ implementation_job_template_name }}"
+    implementation_job_template_org: "Default"
+
+  tasks:
+    ################################################################################################
+    ##############################   CREATING CHANGES  #############################################
+
+    - name: Create change request
+      servicenow.itsm.change_request:
+        state: new
+        type: "{{ change_type }}"
+        short_description: "{{ change_short_description }}"
+        description: "{{ change_description }}"
+        impact: "{{ change_impact }}"
+        urgency: "{{ change_urgency }}"
+        assignment_group: "{{ change_assignment_group | default(omit) }}"
+        other: "{{{
+            'parent': (incident_sys_id | default(omit)),
+            'correlation_id': (alert_fingerprint | default(omit)),
+            'correlation_display': (incident_number | default(omit))
+          }}}"
+      register: change
+      tags:
+        - create_change
+
+    - name: Build implementation plan payload for downstream automation
+      ansible.builtin.set_fact:
+        implementation_payload:
+          job_template: "{{ implementation_job_template_name }}"
+          organization: "{{ implementation_job_template_org }}"
+          extra_vars:
+            target_host: "{{ target_host | default('') }}"
+            incident_sys_id: "{{ incident_sys_id | default('') }}"
+      tags:
+        - create_change
+
+    - name: Update change with implementation plan JSON
+      servicenow.itsm.change_request:
+        number: "{{ change.record.number }}"
+        other: "{{ {'implementation_plan': (implementation_payload | to_json), 'justification': (change_justification | default(omit))} }}"
+      tags:
+        - create_change
+
+    - name: Move change to Authorize and request approval
+      servicenow.itsm.change_request:
+        number: "{{ change.record.number }}"
+        state: authorize
+        assignment_group: "{{ change_assignment_group }}"
+        other: "{{ {'approval': 'requested'} }}"
+      tags:
+        - create_change
+
+    - name: Show change identifiers
+      ansible.builtin.debug:
+        msg:
+          - "Change number: {{ change.record.number | default('unknown') }}"
+          - "Change sys_id: {{ change.record.sys_id | default('unknown') }}"
+      tags:
+        - create_change
+
+    - name: Emit identifiers for downstream workflow nodes
+      ansible.builtin.set_stats:
+        data:
+          change_number: "{{ change.record.number | default('') }}"
+        aggregate: false
+      tags:
+        - create_change
+
+    ################################################################################################
+    ##############################   REVIEWING CHANGES  ############################################
+
+    # - name: Set change to Review state (by sys_id)
+    #   servicenow.itsm.change_request:
+    #     sys_id: "{{ change_sys_id }}"
+    #     state: review
+    #   when: (change_sys_id | default('')) | length > 0
+    #   tags:
+    #     - review_change
+
+    # - name: Set change to Review state (by number)
+    #   servicenow.itsm.change_request:
+    #     number: "{{ change_number }}"
+    #     state: review
+    #   when: (change_sys_id | default('')) | length == 0 and (change_number | default('')) | length > 0
+    #   tags:
+    #     - review_change

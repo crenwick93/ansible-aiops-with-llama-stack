@@ -1,0 +1,261 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: llama-stack-lsd-template
+  annotations:
+    description: "Parametrized LlamaStackDistribution deployment (no Route/Deployment/Service)"
+parameters:
+  - name: NAMESPACE
+    description: "Target OpenShift project/namespace to deploy into"
+    value: "llama-stack-demo"
+  - name: LSD_NAME
+    description: "Name of the LlamaStackDistribution resource"
+    value: "lsd-llama-milvus-inline"
+  - name: INFERENCE_MODEL
+    description: "Model id used by vLLM (stored in secret)"
+    value: "mistral-small-24b-w8a8"
+  - name: VLLM_URL
+    description: "vLLM endpoint base URL (stored in secret)"
+  - name: VLLM_TLS_VERIFY
+    description: "Whether to verify TLS for the vLLM endpoint (true/false)"
+    value: "true"
+  - name: VLLM_API_TOKEN
+    description: "API token for vLLM (stored in secret)"
+  - name: LSD_IMAGE
+    description: "Llama Stack distribution image identifier"
+    value: "rh-dev"
+  - name: LIMITS_CPU
+    description: "CPU limit for the Llama Stack server container"
+    value: "4"
+  - name: LIMITS_MEMORY
+    description: "Memory limit for the Llama Stack server container"
+    value: "12Gi"
+  - name: REQ_CPU
+    description: "CPU request for the Llama Stack server container"
+    value: "250m"
+  - name: REQ_MEMORY
+    description: "Memory request for the Llama Stack server container"
+    value: "500Mi"
+objects:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: lsd-run
+      namespace: ${NAMESPACE}
+    data:
+      run.yaml: |+
+        version: 2
+
+        apis:
+          - agents
+          - datasetio
+          - eval
+          - inference
+          - safety
+          - scoring
+          - telemetry
+          - tool_runtime
+          - vector_io
+          - files
+
+        image_name: rh
+
+        inference_store:
+          type: sqlite
+          db_path: /opt/app-root/src/.llama/distributions/rh/inference_store.db
+
+        metadata_store:
+          type: sqlite
+          db_path: /opt/app-root/src/.llama/distributions/rh/registry.db
+
+        models:
+          - model_id: granite-embedding-125m
+            model_type: embedding
+            provider_id: sentence-transformers
+            provider_model_id: ibm-granite/granite-embedding-125m-english
+            metadata:
+              embedding_dimension: 768
+
+        providers:
+          agents:
+            - provider_id: meta-reference
+              provider_type: inline::meta-reference
+              config:
+                persistence_store:
+                  type: sqlite
+                  db_path: /opt/app-root/src/.llama/distributions/rh/agents_store.db
+                responses_store:
+                  type: sqlite
+                  db_path: /opt/app-root/src/.llama/distributions/rh/responses_store.db
+
+          datasetio:
+            - provider_id: huggingface
+              provider_type: remote::huggingface
+              config:
+                kvstore:
+                  type: sqlite
+                  db_path: /opt/app-root/src/.llama/distributions/rh/huggingface_datasetio.db
+            - provider_id: localfs
+              provider_type: inline::localfs
+              config:
+                kvstore:
+                  type: sqlite
+                  db_path: /opt/app-root/src/.llama/distributions/rh/localfs_datasetio.db
+
+          eval:
+            - provider_id: trustyai_lmeval
+              provider_type: remote::trustyai_lmeval
+              module: llama_stack_provider_lmeval==0.2.4
+              config:
+                base_url: ${env.VLLM_URL}
+                use_k8s: true
+
+          files:
+            - provider_id: meta-reference-files
+              provider_type: inline::localfs
+              config:
+                storage_dir: /opt/app-root/src/.llama/distributions/rh/files
+                metadata_store:
+                  type: sqlite
+                  db_path: /opt/app-root/src/.llama/distributions/rh/files_metadata.db
+
+          inference:
+            - provider_id: vllm-inference
+              provider_type: remote::vllm
+              config:
+                url: ${env.VLLM_URL}
+                api_token: ${env.VLLM_API_TOKEN}
+                tls_verify: ${env.VLLM_TLS_VERIFY}
+            - provider_id: sentence-transformers
+              provider_type: inline::sentence-transformers
+              config: {}
+
+          safety:
+            - provider_id: trustyai_fms
+              provider_type: remote::trustyai_fms
+              module: llama_stack_provider_trustyai_fms==0.2.2
+              config:
+                shields: {}
+
+          scoring:
+            - provider_id: basic
+              provider_type: inline::basic
+              config: {}
+            - provider_id: llm-as-judge
+              provider_type: inline::llm-as-judge
+              config: {}
+            - provider_id: braintrust
+              provider_type: inline::braintrust
+              config:
+                openai_api_key: ""
+
+          telemetry:
+            - provider_id: meta-reference
+              provider_type: inline::meta-reference
+              config:
+                service_name: ""
+                sinks:
+                  - console
+                sqlite_db_path: /opt/app-root/src/.llama/distributions/rh/trace_store.db
+
+          tool_runtime:
+            - provider_id: brave-search
+              provider_type: remote::brave-search
+              config:
+                api_key: ""
+                max_results: 3
+            - provider_id: tavily-search
+              provider_type: remote::tavily-search
+              config:
+                api_key: ""
+                max_results: 3
+            - provider_id: rag-runtime
+              provider_type: inline::rag-runtime
+              config: {}
+            - provider_id: model-context-protocol
+              provider_type: remote::model-context-protocol
+              config: {}
+
+          vector_io:
+            - provider_id: milvus
+              provider_type: inline::milvus
+              config:
+                db_path: /opt/app-root/src/.llama/distributions/rh/milvus.db
+                kvstore:
+                  type: sqlite
+                  db_path: /opt/app-root/src/.llama/distributions/rh/milvus_registry.db
+
+        tool_groups:
+          - toolgroup_id: builtin::websearch
+            provider_id: tavily-search
+          - toolgroup_id: builtin::rag
+            provider_id: rag-runtime
+          - toolgroup_id: mcp::kubernetes
+            provider_id: model-context-protocol
+            mcp_endpoint:
+              uri: "http://kubernetes-mcp-server.llama-stack-demo.svc.cluster.local:8080/sse"
+
+        vector_dbs: []
+        scoring_fns: []
+
+        server:
+          port: 8321
+
+        shields: []
+
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: llama-stack-inference-model-secret
+      namespace: ${NAMESPACE}
+    type: Opaque
+    stringData:
+      INFERENCE_MODEL: ${INFERENCE_MODEL}
+      VLLM_URL: ${VLLM_URL}
+      VLLM_TLS_VERIFY: ${VLLM_TLS_VERIFY}
+      VLLM_API_TOKEN: ${VLLM_API_TOKEN}
+
+  - apiVersion: llamastack.io/v1alpha1
+    kind: LlamaStackDistribution
+    metadata:
+      name: ${LSD_NAME}
+      namespace: ${NAMESPACE}
+    spec:
+      replicas: 1
+      server:
+        containerSpec:
+          name: llama-stack
+          port: 8321
+          env:
+            - name: INFERENCE_MODEL
+              valueFrom:
+                secretKeyRef:
+                  key: INFERENCE_MODEL
+                  name: llama-stack-inference-model-secret
+            - name: VLLM_URL
+              valueFrom:
+                secretKeyRef:
+                  key: VLLM_URL
+                  name: llama-stack-inference-model-secret
+            - name: VLLM_TLS_VERIFY
+              valueFrom:
+                secretKeyRef:
+                  key: VLLM_TLS_VERIFY
+                  name: llama-stack-inference-model-secret
+            - name: VLLM_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  key: VLLM_API_TOKEN
+                  name: llama-stack-inference-model-secret
+          resources:
+            limits:
+              cpu: ${LIMITS_CPU}
+              memory: ${LIMITS_MEMORY}
+            requests:
+              cpu: ${REQ_CPU}
+              memory: ${REQ_MEMORY}
+        distribution:
+          name: rh-dev
+        userConfig:
+          configMapName: lsd-run
+

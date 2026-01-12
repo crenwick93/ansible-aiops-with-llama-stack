@@ -1,0 +1,11 @@
+# dotenv
+.env
+.env.*
+!.env.example
+# Llama-Stack runtime config (contains secrets)
+openshift/llama-stack/config/providers.yaml
+.ansible
+
+collections/*
+!collections/requirements.yml
+context

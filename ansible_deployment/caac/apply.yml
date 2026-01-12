@@ -1,0 +1,36 @@
+---
+- name: Apply AAP objects (Controller and EDA) via infra.aap_configuration
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  collections:
+    - infra.aap_configuration
+
+  vars:
+    # AAP 2.5+ single gateway URL/token (provided via env or -e)
+    aap_hostname: "{{ lookup('env', 'AAP_HOSTNAME') | default(omit, true) }}"
+    aap_token: "{{ lookup('env', 'AAP_TOKEN') | default(omit, true) }}"
+    aap_validate_certs: "{{ (lookup('env', 'AAP_VALIDATE_CERTS') | default('true', true)) | bool }}"
+    aap_org: "{{ lookup('env', 'AAP_ORG') | default('Default', true) }}" # AAP ORG to apply the objects to
+
+    # Logging toggles
+    aap_configuration_secure_logging: false
+    aap_configuration_collect_logs: true
+
+    # ServiceNow env inputs (required)
+    sn_instance: "{{ lookup('env', 'SN_INSTANCE') | default(omit, true) }}"
+    sn_username: "{{ lookup('env', 'SN_USERNAME') | default(omit, true) }}"
+    sn_password: "{{ lookup('env', 'SN_PASSWORD') | default(omit, true) }}"
+
+    # OpenShift/Kubernetes API credential inputs (optional)
+    ocp_api_host: "{{ lookup('env', 'OCP_API_HOST') | default(omit, true) }}"
+    ocp_api_token: "{{ lookup('env', 'OCP_API_TOKEN') | default(omit, true) }}"
+    ocp_verify_ssl: "{{ (lookup('env', 'OCP_VERIFY_SSL') | default('true', true)) | bool }}"
+    ocp_ssl_ca_cert: "{{ lookup('env', 'OCP_SSL_CA_CERT') | default(omit, true) }}"
+
+    # EDA custom Decision Environment image (build and push first, then set here)
+    de_image: "quay.io/crenwick93/snow-de:latest"
+  vars_files:
+    - vars.yml
+  roles:
+    - role: infra.aap_configuration.dispatch

@@ -1,0 +1,173 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: kubernetes-mcp-server
+  annotations:
+    description: "Deploy Kubernetes MCP Server (read-only) in a single OpenShift project with 'view' access"
+parameters:
+  - name: DEPLOY_NAMESPACE
+    description: "Namespace where the MCP server (workload) will be deployed"
+    value: llama-stack-demo
+  - name: TARGET_NAMESPACE
+    description: "Namespace the MCP server is allowed to view (RBAC scope)"
+    value: special-payment-project
+  - name: APP_NAME
+    description: "Application name"
+    value: kubernetes-mcp-server
+  - name: IMAGE
+    description: "Container image"
+    value: quay.io/manusa/kubernetes_mcp_server
+  - name: IMAGE_TAG
+    description: "Container image tag"
+    value: latest
+  - name: LOG_LEVEL
+    description: "Logging verbosity (0-9)"
+    value: "2"
+  - name: READ_ONLY
+    description: "Run the server in read-only mode (true/false)"
+    value: "true"
+  - name: CPU_REQUEST
+    description: "CPU request"
+    value: 50m
+  - name: MEMORY_REQUEST
+    description: "Memory request"
+    value: 64Mi
+  - name: CPU_LIMIT
+    description: "CPU limit"
+    value: 200m
+  - name: MEMORY_LIMIT
+    description: "Memory limit"
+    value: 256Mi
+objects:
+  # ServiceAccount for the MCP server
+  - apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: ${APP_NAME}
+      namespace: ${DEPLOY_NAMESPACE}
+      labels:
+        app.kubernetes.io/name: ${APP_NAME}
+        app.kubernetes.io/part-of: kubernetes-mcp-server
+
+  # Bind 'view' ClusterRole in the target namespace (read-only access to view resources)
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: ${APP_NAME}-view
+      namespace: ${TARGET_NAMESPACE}
+      labels:
+        app.kubernetes.io/name: ${APP_NAME}
+        app.kubernetes.io/part-of: kubernetes-mcp-server
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: view
+    subjects:
+      - kind: ServiceAccount
+        name: ${APP_NAME}
+        namespace: ${DEPLOY_NAMESPACE}
+
+  # Deployment
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: ${APP_NAME}
+      namespace: ${DEPLOY_NAMESPACE}
+      labels:
+        app.kubernetes.io/name: ${APP_NAME}
+        app.kubernetes.io/part-of: kubernetes-mcp-server
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: ${APP_NAME}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ${APP_NAME}
+            app.kubernetes.io/part-of: kubernetes-mcp-server
+        spec:
+          serviceAccountName: ${APP_NAME}
+          containers:
+            - name: server
+              image: ${IMAGE}:${IMAGE_TAG}
+              imagePullPolicy: IfNotPresent
+              args:
+                - --log-level=${LOG_LEVEL}
+                - --read-only=${READ_ONLY}
+              ports:
+                - name: http
+                  containerPort: 8080
+                  protocol: TCP
+              resources:
+                requests:
+                  cpu: ${CPU_REQUEST}
+                  memory: ${MEMORY_REQUEST}
+                limits:
+                  cpu: ${CPU_LIMIT}
+                  memory: ${MEMORY_LIMIT}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+
+  # Service
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: ${APP_NAME}
+      namespace: ${DEPLOY_NAMESPACE}
+      labels:
+        app.kubernetes.io/name: ${APP_NAME}
+        app.kubernetes.io/part-of: kubernetes-mcp-server
+    spec:
+      selector:
+        app.kubernetes.io/name: ${APP_NAME}
+      ports:
+        - name: http
+          port: 8080
+          targetPort: http
+          protocol: TCP
+      type: ClusterIP
+
+  # NetworkPolicy to restrict access to this app only from within the same DEPLOY_NAMESPACE
+  - apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: ${APP_NAME}-ingress
+      namespace: ${DEPLOY_NAMESPACE}
+      labels:
+        app.kubernetes.io/name: ${APP_NAME}
+        app.kubernetes.io/part-of: kubernetes-mcp-server
+    spec:
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: ${APP_NAME}
+      policyTypes:
+        - Ingress
+      ingress:
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: ${DEPLOY_NAMESPACE}
+
+  # Optional placeholder ConfigMap (for future custom configuration if needed)
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: ${APP_NAME}-config
+      namespace: ${DEPLOY_NAMESPACE}
+      labels:
+        app.kubernetes.io/name: ${APP_NAME}
+        app.kubernetes.io/part-of: kubernetes-mcp-server
+    data:
+      README: |
+        This ConfigMap is a placeholder for future configuration of kubernetes-mcp-server.
+        The server primarily accepts CLI flags (see README). You can mount additional
+        config files with volumes if needed.
+
+

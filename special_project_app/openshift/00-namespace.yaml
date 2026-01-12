@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: special-payment-project
+
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: payments-provider-sim
+
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: special-monitoring
+

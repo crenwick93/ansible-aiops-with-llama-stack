@@ -1,0 +1,212 @@
+---
+# All CAAC objects live here. apply.yml loads this file and runs dispatch.
+
+# Controller custom credential types
+controller_credential_types:
+  - name: "ServiceNow Credential"
+    description: "Description of your credential type"
+    kind: "cloud"
+    inputs:
+      fields:
+        - id: SN_HOST
+          type: string
+          label: Snow Instance
+        - id: SN_USERNAME
+          type: string
+          label: Username
+        - id: SN_PASSWORD
+          type: string
+          label: Password
+          secret: true
+      required:
+        - SN_HOST
+        - SN_USERNAME
+        - SN_PASSWORD
+    injectors:
+      env:
+        SN_HOST: !unsafe "{{ SN_HOST }}"
+        SN_USERNAME: !unsafe "{{ SN_USERNAME }}"
+        SN_PASSWORD: !unsafe "{{ SN_PASSWORD }}"
+
+# EDA custom credential types
+eda_credential_types:
+  - name: "ServiceNow Credential"
+    description: "Description of your credential type"
+    kind: "cloud"
+    inputs:
+      fields:
+        - id: SN_HOST
+          type: string
+          label: Snow Instance
+        - id: SN_USERNAME
+          type: string
+          label: Username
+        - id: SN_PASSWORD
+          type: string
+          label: Password
+          secret: true
+      required:
+        - SN_HOST
+        - SN_USERNAME
+        - SN_PASSWORD
+    injectors:
+      env:
+        SN_HOST: !unsafe "{{ SN_HOST }}"
+        SN_USERNAME: !unsafe "{{ SN_USERNAME }}"
+        SN_PASSWORD: !unsafe "{{ SN_PASSWORD }}"
+
+# Controller projects
+controller_projects:
+  - name: "ansible-aiops-with-llama-stack"
+    description: "Demo project for Llama Stack RAG"
+    organization: "{{ aap_org }}"
+    scm_type: "git"
+    scm_url: "https://github.com/crenwick93/ansible-aiops-with-llama-stack.git"
+    scm_branch: "main"
+    scm_update_on_launch: true
+
+# Controller job templates
+controller_templates:
+  - name: "Configure Service"
+    description: "Patch ExternalName service to correct upstream"
+    organization: "{{ aap_org }}"
+    job_type: "run"
+    project: "ansible-aiops-with-llama-stack"
+    playbook: "playbooks/deploy_sp_service.yaml"
+    inventory: "Demo Inventory"
+    ask_variables_on_launch: true
+    credentials:
+      - "OpenShift API"
+  - name: "K8s Agent Diagnostics"
+    description: "Run diagnostics via the Kubernetes diagnostics agent"
+    organization: "{{ aap_org }}"
+    job_type: "run"
+    project: "ansible-aiops-with-llama-stack"
+    playbook: "playbooks/k8s_agent_diagnostics.yml"
+    inventory: "Demo Inventory"
+    ask_variables_on_launch: true
+    credentials:
+      - "ServiceNow ITSM"
+  - name: "Create Change"
+    description: "Create a ServiceNow change and attach an implementation plan"
+    organization: "{{ aap_org }}"
+    job_type: "run"
+    project: "ansible-aiops-with-llama-stack"
+    playbook: "playbooks/create_snow_change.yml"
+    inventory: "Demo Inventory"
+    ask_variables_on_launch: true
+    credentials:
+      - "ServiceNow ITSM"
+  - name: "Run Implementation Plan from Change Request"
+    description: "Launch the proposed implementation plan from a ServiceNow change"
+    organization: "{{ aap_org }}"
+    job_type: "run"
+    project: "ansible-aiops-with-llama-stack"
+    playbook: "playbooks/launch_implementation_plan.yml"
+    inventory: "Demo Inventory"
+    ask_variables_on_launch: true
+    credentials:
+      - "ServiceNow ITSM"
+      - "AAP controller credential"
+
+# EDA projects
+eda_projects:
+  - name: "ansible-aiops-with-llama-stack"
+    description: "Demo project for Llama Stack RAG"
+    organization: "{{ aap_org }}"
+    scm_type: "git"
+    scm_url: "https://github.com/crenwick93/ansible-aiops-with-llama-stack.git"
+    scm_branch: "main"
+    scm_update_on_launch: true
+    sync: true
+
+# Controller credentials (ServiceNow, using the custom type)
+controller_credentials:
+  - name: "ServiceNow ITSM"
+    description: "ServiceNow ITSM credential"
+    organization: "{{ aap_org }}"
+    credential_type: "ServiceNow Credential"
+    inputs:
+      SN_HOST: "{{ sn_instance }}"
+      SN_USERNAME: "{{ sn_username }}"
+      SN_PASSWORD: "{{ sn_password }}"
+  - name: "OpenShift API"
+    description: "OpenShift/Kubernetes API bearer token"
+    organization: "{{ aap_org }}"
+    credential_type: "OpenShift or Kubernetes API Bearer Token"
+    inputs:
+      host: "{{ ocp_api_host }}"
+      bearer_token: "{{ ocp_api_token }}"
+      verify_ssl: "{{ ocp_verify_ssl | default(true) }}"
+      ssl_ca_cert: "{{ ocp_ssl_ca_cert | default(omit) }}"
+  - name: "AAP Controller"
+    description: "Token credential for launching Controller jobs via ansible.controller modules"
+    organization: "{{ aap_org }}"
+    credential_type: "Red Hat Ansible Automation Platform"
+    inputs:
+      host: "{{ (aap_hostname | regex_replace('/+$','')) ~ '/api/controller/' }}"
+      oauth_token: "{{ aap_token }}"
+      verify_ssl: "{{ aap_validate_certs }}"
+  - name: "AAP controller credential"
+    description: "Controller OAuth credential (env-driven) for ansible.controller modules"
+    organization: "{{ aap_org }}"
+    credential_type: "Red Hat Ansible Automation Platform"
+    inputs:
+      host: "{{ aap_hostname | regex_replace('/+$','') }}"
+      oauth_token: "{{ aap_token }}"
+      verify_ssl: "{{ aap_validate_certs }}"
+
+# EDA credentials (ServiceNow, using the custom type)
+eda_credentials:
+  - name: "ServiceNow ITSM"
+    description: "ServiceNow ITSM credential"
+    organization: "{{ aap_org }}"
+    credential_type: "ServiceNow Credential"
+    inputs:
+      SN_HOST: "{{ sn_instance }}"
+      SN_USERNAME: "{{ sn_username }}"
+      SN_PASSWORD: "{{ sn_password }}"
+  - name: "AAP Controller"
+    description: "Token credential for connecting EDA to Controller"
+    organization: "{{ aap_org }}"
+    credential_type: "Red Hat Ansible Automation Platform"
+    inputs:
+      host: "{{ (aap_hostname | regex_replace('/+$','')) ~ '/api/controller/' }}"
+      oauth_token: "{{ aap_token }}"
+      verify_ssl: "{{ aap_validate_certs }}"
+
+# EDA Decision Environments
+eda_decision_environments:
+  - name: "snow-de"
+    description: "Decision Environment with ServiceNow collection"
+    organization: "{{ aap_org }}"
+    image_url: "{{ de_image }}"
+    # If your registry requires auth, add:
+    # credential: "<registry-credential-name>"
+
+# EDA rulebook activations
+eda_rulebook_activations:
+  - name: "snow-incidents"
+    description: "Monitor ServiceNow incidents"
+    organization: "{{ aap_org }}"
+    project: "ansible-aiops-with-llama-stack"
+    rulebook: "snow_incidents.yml"
+    decision_environment: "snow-de"
+    eda_credentials:
+      - "ServiceNow ITSM"
+      - "AAP Controller"
+    enabled: true
+    #log_level: "debug"
+  - name: "snow-change-requests"
+    description: "Monitor ServiceNow Change Requests"
+    organization: "{{ aap_org }}"
+    project: "ansible-aiops-with-llama-stack"
+    rulebook: "snow_change_request.yml"
+    decision_environment: "snow-de"
+    eda_credentials:
+      - "ServiceNow ITSM"
+      - "AAP Controller"
+    enabled: true
+    #log_level: "debug"
+
+

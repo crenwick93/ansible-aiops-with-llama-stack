@@ -1,0 +1,35 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: checkout-api-rules
+  namespace: special-payment-project
+spec:
+  groups:
+    - name: upstream.rules
+      rules:
+        - alert: PaymentUpstream
+          expr: max_over_time(special_project_upstream_ok[30s]) == 0
+          for: 30s
+          labels:
+            severity: critical
+          annotations:
+            summary: "PaymentUpstream unreachable"
+            description: "No successful upstream pings from checkout-api in the last 30 seconds."
+        - alert: DeploymentUnavailable
+          expr: kube_deployment_status_replicas_unavailable{namespace="special-payment-project",deployment="checkout-api"} > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "API deployment has unavailable replicas"
+            description: "Deployment checkout-api reports unavailable replicas for more than 5 minutes."
+        - alert: PodCrashLooping
+          expr: max_over_time(kube_pod_container_status_waiting_reason{namespace="special-payment-project",pod=~"checkout-api-.*",reason="CrashLoopBackOff"}[5m]) == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "API pod CrashLoopBackOff"
+            description: "One or more checkout-api pods are in CrashLoopBackOff for over 5 minutes."
+
+

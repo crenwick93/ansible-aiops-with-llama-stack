@@ -1,0 +1,70 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: frontend
+  namespace: special-payment-project
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: frontend
+  namespace: special-payment-project
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Containerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: frontend:latest
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: api
+  namespace: special-payment-project
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: api
+  namespace: special-payment-project
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Containerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: api:latest
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: snow-bridge
+  namespace: special-monitoring
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: snow-bridge
+  namespace: special-monitoring
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Containerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: snow-bridge:latest
+
+

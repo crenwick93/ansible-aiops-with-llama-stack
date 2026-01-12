@@ -1,0 +1,22 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: checkout-api-servicenow
+  namespace: special-payment-project
+  labels:
+    alertmanagerConfig: "true"
+spec:
+  route:
+    receiver: servicenow
+    groupBy: ["alertname", "namespace"]
+    groupWait: 10s
+    groupInterval: 1m
+    repeatInterval: 2h
+  receivers:
+    - name: servicenow
+      webhookConfigs:
+        - url: http://snow-bridge.special-monitoring.svc.cluster.local:8080/alerts
+          sendResolved: false
+          # no auth here; bridge handles auth to ServiceNow
+
+

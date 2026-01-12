@@ -1,0 +1,24 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: portal-frontend
+  namespace: special-payment-project
+spec:
+  host: special-payments.apps.CHANGE-ME.example.com   # <-- set to your cluster's apps domain
+  to: { kind: Service, name: checkout-frontend, weight: 100 }
+  port: { targetPort: http }
+  tls: { termination: edge }  # optional; remove if using http
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: portal-api
+  namespace: special-payment-project
+spec:
+  host: special-payments.apps.CHANGE-ME.example.com   # same host, different path
+  path: /api
+  to: { kind: Service, name: checkout-api, weight: 100 }
+  port: { targetPort: http }
+  tls: { termination: edge }
+
+

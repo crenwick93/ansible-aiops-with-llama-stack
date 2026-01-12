@@ -1,0 +1,90 @@
+---
+- name: Call K8s Diagnostics Agent and print results
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # Base URL for the k8s diagnostics agent (Route)
+    k8s_agent_base_url: "https://k8-diagnostics-agent-llama-stack-demo.apps.cluster-jqzjt.jqzjt.sandbox1923.opentlc.com"
+
+    # Plain-text incident description (as used in ServiceNow)
+    # Override with: -e 'incident_description=...'
+    incident_description: |
+      No successful upstream pings from checkout-api in the last 30 seconds.
+
+      Namespace: special-payment-project
+
+    # HTTP configuration
+    content_type: "text/plain"
+    validate_tls: true      # set to false if you need to skip TLS verification
+    request_timeout: 120
+
+  tasks:
+    - name: Call k8s diagnostics agent /diagnose
+      uri:
+        url: "{{ k8s_agent_base_url }}/diagnose"
+        method: POST
+        headers:
+          Content-Type: "{{ content_type }}"
+        body: "{{ incident_description }}"
+        return_content: true
+        status_code: 200
+        validate_certs: "{{ validate_tls }}"
+        timeout: "{{ request_timeout }}"
+      register: k8s_diag_response
+
+    - name: Parse JSON response
+      set_fact:
+        k8s_diag_json: "{{ k8s_diag_response.json | default((k8s_diag_response.content | from_json), true) }}"
+
+    - name: Show full JSON response
+      debug:
+        var: k8s_diag_json
+
+    - name: Show worknotes (ServiceNow-ready)
+      debug:
+        msg: "{{ k8s_diag_json.worknotes | default('no worknotes returned') }}"
+
+    - name: Show structured JSON block (output_as_json)
+      debug:
+        var: k8s_diag_json.output_as_json
+
+    - name: Post structured findings back to EDA (for post_events)
+      ansible.builtin.set_stats:
+        data:
+          diagnostics_structured: "{{ k8s_diag_json.output_as_json | default({}) }}"
+          diagnostics_report: "{{ k8s_diag_json.worknotes | default('') }}"
+          eda_event: "{{ ansible_eda.event | default({}) }}"
+
+    - name: Cache structured findings for later play use
+      ansible.builtin.set_fact:
+        diagnostics_structured: "{{ k8s_diag_json.output_as_json | default({}) }}"
+
+###############################################################################################
+#####################  UPLOAD REPORT TO SERVICE NOW (IF REQUIRED) ############################
+- name: Upload report to ServiceNow
+  hosts: localhost
+  gather_facts: true
+  tasks:
+    # Create ServiceNow incident and set incident_sys_id so it's accessible in workflow or rulebook
+
+    - name: Update ticket with report
+      servicenow.itsm.incident:
+        sys_id: "{{ incident_sys_id }}"
+        state: 2 # In Progress
+        other:
+          work_notes: "{{ k8s_diag_json.worknotes | default('no worknotes returned') }}"
+
+    - name: Add advisory about proposed remediation (if suggested by diagnostics)
+      servicenow.itsm.incident:
+        sys_id: "{{ incident_sys_id }}"
+        other:
+          work_notes: >-
+            The k8s diagnostics agent has suggested running
+            "{{ diagnostics_structured.proposed_remediation_via_aap.job_template_name }}" on AAP to resolve the issue.
+            A change request has been raised. Please approve to attempt the remediation.
+      when:
+        - diagnostics_structured.proposed_remediation_via_aap is defined
+        - (incident_sys_id | default('')) | length > 0
+
+

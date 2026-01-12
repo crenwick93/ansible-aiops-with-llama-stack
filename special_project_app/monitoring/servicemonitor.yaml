@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: checkout-api
+  namespace: special-payment-project
+spec:
+  selector:
+    matchLabels:
+      app: checkout-api
+  endpoints:
+    - port: http
+      path: /metrics
+      scheme: http
+      interval: 30s
+
+
+

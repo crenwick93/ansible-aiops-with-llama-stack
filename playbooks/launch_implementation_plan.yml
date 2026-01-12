@@ -1,0 +1,91 @@
+---
+- name: Launch Job Template from Implementation Plan
+  hosts: localhost
+  become: false
+  gather_facts: false
+  vars:
+    implementation_plan: ""
+  tasks:
+    - name: Ensure implementation plan is provided (string or dict)
+      ansible.builtin.assert:
+        that:
+          - (implementation_plan is mapping) or ((implementation_plan | string | trim) != '')
+        fail_msg: "implementation_plan is required as JSON string or dict"
+
+    - name: Parse or pass-through implementation plan
+      ansible.builtin.set_fact:
+        implementation_plan_parsed: "{{ implementation_plan if (implementation_plan is mapping) else (implementation_plan | from_json) }}"
+
+    - name: Emit parsed implementation plan for EDA
+      ansible.builtin.set_fact:
+        implementation_plan_json: "{{ implementation_plan_parsed }}"
+
+    - name: Preflight — ensure payload arrived from workflow artifacts
+      ansible.builtin.assert:
+        that:
+          - implementation_plan_json is defined
+          - implementation_plan_json.job_template is defined
+        fail_msg: "implementation_plan_json was not provided by the workflow node"
+
+    - name: (Optional) inspect the incoming payload
+      ansible.builtin.debug:
+        var: implementation_plan_json
+        verbosity: 1
+
+    - name: Launch job template
+      ansible.controller.job_launch:
+        # (These can be omitted if provided via env in AAP)
+        # controller_host: "{{ lookup('env','CONTROLLER_HOST') | regex_replace('/api/.*$', '') }}"
+        # controller_username: "{{ lookup('env','CONTROLLER_USERNAME') | default(omit) }}"
+        # controller_password: "{{ lookup('env','CONTROLLER_PASSWORD') | default(omit) }}"
+        # validate_certs: false
+        job_template: "{{ implementation_plan_json.job_template }}"
+        organization: "{{ implementation_plan_json.organization | default(omit) }}"
+        extra_vars: "{{ implementation_plan_json.extra_vars | default({}) }}"
+      register: launch
+
+    - name: Wait for job to finish
+      ansible.controller.job_wait:
+        # controller_host/controller_* also read from env if set in AAP
+        job_id: "{{ launch.id }}"
+        timeout: 1800
+        interval: 2
+      register: job_result
+
+    - name: Fail play if the Controller job did not succeed
+      ansible.builtin.fail:
+        msg: "Job {{ launch.id }} finished with status {{ job_result.status }}"
+      when: job_result.status != 'successful'
+
+    ################################################################################################
+    ##############################   REVIEWING CHANGES  ############################################
+
+    - name: Set change to Review state (by sys_id)
+      servicenow.itsm.change_request:
+        sys_id: "{{ change_sys_id }}"
+        state: review
+      when: (change_sys_id | default('')) | length > 0
+      tags:
+        - review_change
+
+    - name: Set change to Review state (by number)
+      servicenow.itsm.change_request:
+        number: "{{ change_number }}"
+        state: review
+      when: (change_sys_id | default('')) | length == 0 and (change_number | default('')) | length > 0
+      tags:
+        - review_change
+
+    ################################################################################################
+    ##############################   UPDATING INCIDENTS  ###########################################
+
+    # Update state and work notes on ServiceNow incident
+    - name: Update state and work notes on ServiceNow incident
+      servicenow.itsm.incident:
+        sys_id: "{{ incident_sys_id }}"
+        state: 2 # In Progress
+        other:
+          work_notes: Change has been approved and implemented. Please review and close incident.
+      tags:
+        - update_incident
+      register: update_incident

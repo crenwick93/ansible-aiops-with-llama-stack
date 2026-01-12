@@ -1,0 +1,47 @@
+---
+- name: Special Project Service - Deploy/Repair DNS
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  collections:
+    - redhat.openshift
+
+  vars:
+    namespace: "special-payment-project"
+    external_service_name: "card-gateway-dns"
+    correct_external_name: "card-gateway-sandbox.payments-provider-sim.svc.cluster.local"
+
+  tasks:
+    - name: Ensure ExternalName Service points to correct upstream
+      redhat.openshift.k8s:
+        state: present
+        merge_type: strategic-merge
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: "{{ external_service_name }}"
+            namespace: "{{ namespace }}"
+          spec:
+            externalName: "{{ correct_external_name }}"
+      register: svc_result
+
+    - name: Assert service externalName is correct
+      assert:
+        that:
+          - (svc_result.result | default({})).metadata.name | default('') == external_service_name
+          - (svc_result.result | default({})).spec.externalName | default('') == correct_external_name
+        fail_msg: "Service not updated as expected."
+        success_msg: "Service updated with correct externalName."
+
+    - name: Show service summary
+      debug:
+        msg:
+          name: "{{ (svc_result.result | default({})).metadata.name | default(external_service_name) }}"
+          type: "{{ (svc_result.result | default({})).spec.type | default('') }}"
+          externalName: "{{ (svc_result.result | default({})).spec.externalName | default('') }}"
+          namespace: "{{ namespace }}"
+
+
+
+

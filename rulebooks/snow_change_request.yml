@@ -1,0 +1,36 @@
+---
+- name: Listen for ServiceNow change Implement and run remediation
+  hosts: all
+  sources:
+    - servicenow.itsm.records:
+        table: change_request
+        interval: 10
+        # Filter ONLY by assignment group; newest first to avoid the “oldest page first” trap
+        sysparm_query: >
+          assignment_group=91b12d5b53c72610a33138f0a0490e52^
+          ORDERBYDESCsys_updated_on^ORDERBYDESCsys_id
+        remote_servicenow_timezone: "Europe/London"
+        filters:
+          - ansible.eda.json_filter:
+          - ansible.eda.normalize_keys:
+        # - If you need labels for logging only, uncomment the line below.
+        # display_value: true
+  rules:
+    - name: Run corresponding remediation workflow
+      # - ServiceNow 'state' is a choice-list; in many instances '-1' maps to 'Implement'.
+      throttle:
+        once_within: 10 minutes
+        group_by_attributes:
+          - sys_id
+      condition: event.state == '-1'
+      action:
+        run_job_template:
+          name: Run Implementation Plan from Change Request
+          organization: Default
+          job_args:
+            extra_vars:
+              # raw JSON; parse in the playbook using from_json
+              implementation_plan: "{{ event.implementation_plan | default('') }}"
+              # change_number: "{{ event.number | default('') }}"
+              change_sys_id: "{{ event.sys_id | default('') }}"
+              incident_sys_id: "{{ event.parent | default('') }}"

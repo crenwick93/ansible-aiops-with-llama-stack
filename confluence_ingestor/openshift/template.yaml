@@ -1,0 +1,79 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: aiops-conf-ingestion
+parameters:
+  - name: NAMESPACE
+    description: Target namespace to create resources in
+  - name: IMAGE
+    description: Container image reference
+    value: your-registry/your-namespace/aiops-conf-ingestion:latest
+  - name: CRON_SCHEDULE
+    description: Cron expression for nightly run
+    value: "0 2 * * *"
+  - name: LLAMA_BASE_URL
+    description: Llama Stack base URL (e.g. http://llama:8321)
+  - name: CONF_CLOUD_ID
+    description: Confluence Cloud ID
+  - name: SPACE_NAME
+    description: Confluence space name
+    value: "Known Issues"
+  - name: VECTOR_DB_ID
+    description: Logical vector DB name
+    value: "conf-known-issues"
+  - name: LABELS
+    description: Optional labels filter (comma-separated)
+    value: ""
+  - name: BATCH_SIZE
+    description: Insert batch size
+    value: "100"
+  - name: CONF_USER
+    description: Confluence user (email)
+  - name: CONF_API_TOKEN
+    description: Confluence API token
+objects:
+# ConfigMap
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: confluence-ingestor-config
+      namespace: "${NAMESPACE}"
+    data:
+      LLAMA_BASE_URL: "${LLAMA_BASE_URL}"
+      CONF_CLOUD_ID: "${CONF_CLOUD_ID}"
+      SPACE_NAME: "${SPACE_NAME}"
+      VECTOR_DB_ID: "${VECTOR_DB_ID}"
+      LABELS: "${LABELS}"
+      BATCH_SIZE: "${BATCH_SIZE}"
+# Secret
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: confluence-creds
+      namespace: "${NAMESPACE}"
+    type: Opaque
+    stringData:
+      CONF_USER: "${CONF_USER}"
+      CONF_API_TOKEN: "${CONF_API_TOKEN}"
+# Job
+  - apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: confluence-ingester
+      namespace: "${NAMESPACE}"
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: working-sync
+              image: "${IMAGE}"
+              imagePullPolicy: Always
+              envFrom:
+                - configMapRef:
+                    name: confluence-ingestor-config
+                - secretRef:
+                    name: confluence-creds
+      backoffLimit: 1
+
+

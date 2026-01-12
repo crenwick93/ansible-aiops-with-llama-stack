@@ -1,0 +1,77 @@
+---
+- name: Monitor incidents in ServiceNow
+  hosts: all
+  execution_strategy: parallel
+  sources:
+    - servicenow.itsm.records:
+        table: incident
+        interval: 10
+        remote_servicenow_timezone: "Europe/London"
+        # newest first to avoid the “oldest page first” trap
+        sysparm_query: >
+          ORDERBYDESCsys_updated_on^ORDERBYDESCsys_id
+      filters:
+        - ansible.eda.json_filter:
+        - ansible.eda.normalize_keys:
+  rules:
+    # Debug helper: pretty-print the entire event (toggle by condition)
+    # - name: Show event (pretty)
+    #   condition: event.meta is defined
+    #   action:
+    #     print_event:
+    #       pretty: true
+
+###############################################################################################
+############################ RUN THE DIAGNOSTICS ##############################################
+
+    - name: Run diagnostics and enrich incident
+      throttle:
+        once_within: 10 minutes
+        group_by_attributes:
+          - sys_id
+      condition: event.short_description is defined
+      action:
+        run_job_template:
+          name: K8s Agent Diagnostics
+          organization: Default
+          post_events: true
+          job_args:
+            extra_vars:
+              incident_description: "{{ event.short_description + ' ' + event.description }}"
+              k8s_agent_base_url: "https://k8-diagnostics-agent-llama-stack-demo.apps.cluster-jqzjt.jqzjt.sandbox1923.opentlc.com"
+              incident_sys_id: "{{ event.sys_id }}"
+
+
+###############################################################################################
+#### RULES BELOW WILL BE TRIGGERED ON SECOND RUN (POST_EVENTS:TRUE) IF ANY CONDITIONS MATCH ###
+
+    - name: Raise change if diagnostics propose any remediation
+      throttle:
+        once_within: 10 minutes
+        group_by_attributes:
+          - sys_id
+      condition: >
+        event.diagnostics_structured is defined
+        and event.diagnostics_structured.proposed_remediation_via_aap is defined
+      action:
+        run_job_template:
+          name: Create Change
+          organization: Default
+          job_args:
+            extra_vars:
+              change_type: emergency
+              change_short_description: >-
+                Emergency change: Fix ExternalName for
+                {{ event.diagnostics_structured.proposed_remediation_via_aap.extra_vars.external_service_name }}
+              change_description: "{{ event.diagnostics_structured.probable_cause | default('Automated change created by EDA') }}"
+              change_impact: high
+              change_urgency: high
+              change_assignment_group: "Event Driven Ansible"
+              implementation_job_template_name: "{{ event.diagnostics_structured.proposed_remediation_via_aap.job_template_name }}"
+              implementation_job_template_org: "Default"
+              implementation_plan: "{{ event.diagnostics_structured.proposed_remediation_via_aap }}"
+              change_justification: >-
+                {{ (event.diagnostics_structured.evidence_mapping | default([])) | join(' | ') }}
+              alert_fingerprint: "{{ event.correlation_id | default('') }}"
+              incident_sys_id: "{{ event.sys_id | default(event.eda_event.sys_id | default('')) }}"
+              incident_number: "{{ event.number | default('') }}"
