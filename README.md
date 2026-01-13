@@ -20,14 +20,14 @@ cp .env.example .env
 
 2. Deploy Special Project using script
 ```sh
-./llama-stack/scripts/oc-deploy.sh
+./special_project_app/scripts/oc-deploy.sh
 ```
 
 3. Deploy OCP MCP server.
 Creates the llama-stack-demo project if it does not already exist.
 Creates the roles and rolebindings needed to make this mcp server project level scoped to the special-payment-project
 ```sh
-./llama-stack/scripts/oc-deploy.sh
+./k8s_mcp_server/scripts/oc-deploy.sh
 ```
 
 4. Deploy Llama Stack
@@ -54,3 +54,6 @@ Remember at this pointwe have not ingested any docs so the example questions wil
 ```
 
 7. Configure AAP
+```sh
+./ansible_deployment/scripts/caac-apply.sh
+```
