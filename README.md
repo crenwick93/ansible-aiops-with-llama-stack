@@ -57,3 +57,19 @@ Remember at this pointwe have not ingested any docs so the example questions wil
 ```sh
 ./ansible_deployment/scripts/caac-apply.sh
 ```
+
+### Confuence Setup
+
+
+
+### Quick Confluence connectivity test 
+Use this helper script to check the connectivity to the api
+```sh
+./confluence_ingestor/helper_scripts/check_api_access_to_space.sh
+```
+
+Use the helper script to verify credentials and list pages from a space before running ingestion:
+```sh
+./confluence_ingestor/helper_scripts/test_confluence.sh
+```
+This ensures you have setup the account with the correct RBAC.
