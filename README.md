@@ -72,7 +72,7 @@ Use the helper script to verify credentials and list pages from a space before r
 ```
 This ensures you have setup the account with the correct RBAC.
 
-### Things to do
+### Things to do (Future work)
 
 - Add documentation to create confluence space, push documentation to space and get API token for setup.
 - Update notebooks and scripts to work on Openshift AI 3.2 when it's released (Containing next release of llama stack)
