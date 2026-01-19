@@ -60,9 +60,7 @@ Remember at this pointwe have not ingested any docs so the example questions wil
 
 ### Confuence Setup
 
-
-
-### Quick Confluence connectivity test 
+### Quick Confluence connectivity test
 Use this helper script to check the connectivity to the api
 ```sh
 ./confluence_ingestor/helper_scripts/check_api_access_to_space.sh
@@ -73,3 +71,12 @@ Use the helper script to verify credentials and list pages from a space before r
 ./confluence_ingestor/helper_scripts/test_confluence.sh
 ```
 This ensures you have setup the account with the correct RBAC.
+
+### Things to do
+
+- Update notebooks and scripts to work on Openshift AI 3.2 when it's released (Containing next release of llama stack)
+- Improve prompts for the k8s_agents
+- Test against other models. Currently its only tested against llama-4-scout-17b-16e-w4a16
+- Replace confluence ingestor custom sripts to use Docling for an easier out-of-the-box approach.
+- Create use case focused on issue remediation for a VM (not k8s)
+- Add Slack MCP server for searching through slack conversations for content relating to given issue and link in the enriched incident.
