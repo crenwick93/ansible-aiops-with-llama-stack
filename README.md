@@ -74,6 +74,7 @@ This ensures you have setup the account with the correct RBAC.
 
 ### Things to do
 
+- Add documentation to create confluence space, push documentation to space and get API token for setup.
 - Update notebooks and scripts to work on Openshift AI 3.2 when it's released (Containing next release of llama stack)
 - Improve prompts for the k8s_agents
 - Test against other models. Currently its only tested against llama-4-scout-17b-16e-w4a16
